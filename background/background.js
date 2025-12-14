@@ -141,8 +141,25 @@ async function handleMessage(message, sender = null) {
 }
 
 async function handleUpdateSettings(newSettings) {
+    // Language'ı korumak için mevcut language değerini al
+    const currentLang = await chrome.storage.local.get('language');
+    
     appState.settings = { ...appState.settings, ...newSettings };
-    await saveSettings(appState.settings);
+    
+    // Language popup tarafından yönetiliyor, background değiştirmesin
+    // Sadece belirtilen ayarları kaydet, language'a dokunma
+    const settingsToSave = {
+        username: appState.settings.username,
+        checkInterval: appState.settings.checkInterval,
+        notifyFirstView: appState.settings.notifyFirstView,
+        notifyRepeatView: appState.settings.notifyRepeatView,
+        soundEnabled: appState.settings.soundEnabled,
+        desktopNotification: appState.settings.desktopNotification,
+        theme: appState.settings.theme
+        // language burada YOK - popup yönetiyor
+    };
+    
+    await chrome.storage.local.set(settingsToSave);
     
     // Takip aktifse alarm aralığını güncelle
     if (appState.isTracking) {

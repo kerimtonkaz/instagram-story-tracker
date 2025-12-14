@@ -7,7 +7,8 @@ const DEFAULT_SETTINGS = {
     notifyRepeatView: true,
     soundEnabled: true,
     desktopNotification: true,
-    theme: 'light'
+    theme: 'light',
+    language: 'tr'
 };
 
 const DEFAULT_STATE = {
@@ -29,7 +30,8 @@ export async function loadSettings() {
             'notifyRepeatView',
             'soundEnabled',
             'desktopNotification',
-            'theme'
+            'theme',
+            'language'
         ]);
         
         return { ...DEFAULT_SETTINGS, ...result };

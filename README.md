@@ -2,7 +2,7 @@
 
 <div align="center">
 
-![Version](https://img.shields.io/badge/version-1.0.0-pink)
+![Version](https://img.shields.io/badge/version-1.1.0-pink)
 ![Chrome](https://img.shields.io/badge/Chrome-Extension-blue)
 ![Manifest](https://img.shields.io/badge/Manifest-V3-green)
 ![License](https://img.shields.io/badge/license-MIT-purple)
@@ -73,11 +73,18 @@
 - Smooth animasyonlar ve geçişler
 - Gerçek zamanlı progress bar ile sonraki kontrol göstergesi
 
+### 🌐 Çoklu Dil Desteği
+- **Türkçe** - Tam Türkçe arayüz
+- **English** - Full English interface
+- Tek tıkla dil değiştirme
+- Seçilen dil otomatik kaydedilir
+
 ### ⚙️ Özelleştirme
 - Kontrol aralığı ayarı (2-60 dakika)
 - Bildirim türlerini açıp kapatma
 - Ses bildirimi kontrolü
 - Takip listesi yönetimi
+- Dil seçimi (Türkçe/English)
 
 ---
 
@@ -174,7 +181,8 @@ instagram-story-tracker/
 │   ├── notifications.js    # Bildirim sistemi
 │   ├── viewer-tracker.js   # Görüntüleyici takip algoritması
 │   ├── alarms.js           # Zamanlayıcı yönetimi
-│   └── instagram.js        # Instagram tab işlemleri
+│   ├── instagram.js        # Instagram tab işlemleri
+│   └── i18n.js             # Çoklu dil desteği (🇹🇷/🇬🇧)
 ├── assets/
 │   ├── icons/              # Extension ikonları
 │   └── sounds/             # Bildirim sesleri

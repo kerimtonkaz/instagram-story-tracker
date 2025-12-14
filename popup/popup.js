@@ -1,6 +1,15 @@
+// i18n modülünden çevirileri al
+import { translations, t, setLanguage, getLanguage, loadLanguage, saveLanguage } from '../utils/i18n.js';
+
+// currentLang artık i18n.js'den yönetiliyor
+let currentLang = 'tr';
+
 const $ = id => document.getElementById(id);
 const $$ = sel => document.querySelectorAll(sel);
 const el = {
+    htmlRoot: $('htmlRoot'),
+    appName: $('appName'),
+    lastCheckLabel: $('lastCheckLabel'),
     themeToggle: $('themeToggle'),
     statusDot: $('statusDot'),
     statusPing: $('statusPing'),
@@ -10,28 +19,50 @@ const el = {
     progressBar: $('progressBar'),
     tabBtns: $$('.tab-btn'),
     tabContents: $$('.tab-content'),
+    tabStories: $('tabStories'),
+    tabWatchlist: $('tabWatchlist'),
+    tabSettings: $('tabSettings'),
+    yourStoriesLabel: $('yourStoriesLabel'),
+    noStoryText: $('noStoryText'),
+    noStoryHint: $('noStoryHint'),
+    usernameLabel: $('usernameLabel'),
     username: $('username'),
+    intervalLabel: $('intervalLabel'),
     checkInterval: $('checkInterval'),
     intervalValue: $('intervalValue'),
+    notificationsLabel: $('notificationsLabel'),
+    firstViewLabel: $('firstViewLabel'),
+    repeatViewLabel: $('repeatViewLabel'),
+    soundLabel: $('soundLabel'),
+    desktopLabel: $('desktopLabel'),
     notifyFirstView: $('notifyFirstView'),
     notifyRepeatView: $('notifyRepeatView'),
     soundEnabled: $('soundEnabled'),
     desktopNotification: $('desktopNotification'),
     testSound: $('testSound'),
+    languageLabel: $('languageLabel'),
+    langTr: $('langTr'),
+    langEn: $('langEn'),
     saveSettings: $('saveSettings'),
     storyList: $('storyList'),
     storyCount: $('storyCount'),
     emptyStories: $('emptyStories'),
+    watchlistInfo: $('watchlistInfo'),
     newUsername: $('newUsername'),
     addUserBtn: $('addUserBtn'),
+    notificationListLabel: $('notificationListLabel'),
     userList: $('userList'),
     userCount: $('userCount'),
     emptyState: $('emptyState'),
+    emptyListText: $('emptyListText'),
+    emptyListHint: $('emptyListHint'),
     manualCheck: $('manualCheck'),
     manualCheckIcon: $('manualCheckIcon'),
     manualCheckText: $('manualCheckText'),
     startTracking: $('startTracking'),
+    startTrackingText: $('startTrackingText'),
     stopTracking: $('stopTracking'),
+    stopTrackingText: $('stopTrackingText'),
     storyDetailModal: $('storyDetailModal'),
     closeStoryModal: $('closeStoryModal'),
     storyThumbnail: $('storyThumbnail'),
@@ -54,7 +85,14 @@ const el = {
     modalLastSeen: $('modalLastSeen'),
     modalStoryList: $('modalStoryList'),
     modalActivityList: $('modalActivityList'),
-    deleteUserData: $('deleteUserData')
+    deleteUserData: $('deleteUserData'),
+    // User modal labels
+    modalViewCountLabel: $('modalViewCountLabel'),
+    modalStoryCountLabel: $('modalStoryCountLabel'),
+    modalLastActivityLabel: $('modalLastActivityLabel'),
+    modalStoryViewsLabel: $('modalStoryViewsLabel'),
+    modalActivityLabel: $('modalActivityLabel'),
+    deleteUserLabel: $('deleteUserLabel')
 };
 let state = {
     username: '',
@@ -64,6 +102,7 @@ let state = {
     soundEnabled: true,
     desktopNotification: true,
     theme: 'light',
+    language: 'tr',
     stories: {},
     watchlist: [],
     isTracking: false,
@@ -78,8 +117,18 @@ let state = {
 };
 let progressInterval = null;
 document.addEventListener('DOMContentLoaded', async () => {
+    console.log('[LANG] === Popup başlatılıyor ===');
+    
+    // Önce direkt storage'dan oku
+    const directCheck = await chrome.storage.local.get('language');
+    console.log('[LANG] Direkt storage kontrolü:', directCheck);
+    
     await loadState();
+    console.log('[LANG] loadState sonrası state.language:', state.language, 'currentLang:', currentLang);
+    
     setupEventListeners();
+    applyLanguage();
+    updateLanguageButtons();
     renderAll();
     startProgressTimer();
     if (state.theme === 'dark') {
@@ -90,9 +139,10 @@ async function loadState() {
     try {
         const result = await chrome.storage.local.get([
             'username', 'checkInterval', 'notifyFirstView', 'notifyRepeatView',
-            'soundEnabled', 'desktopNotification', 'theme',
+            'soundEnabled', 'desktopNotification', 'theme', 'language',
             'stories', 'watchlist', 'isTracking', 'lastCheck', 'stats'
         ]);
+        console.log('[LANG] loadState - Storage result.language:', result.language);
         state.username = result.username || '';
         state.checkInterval = result.checkInterval || 5;
         state.notifyFirstView = result.notifyFirstView !== false;
@@ -100,6 +150,14 @@ async function loadState() {
         state.soundEnabled = result.soundEnabled !== false;
         state.desktopNotification = result.desktopNotification !== false;
         state.theme = result.theme || 'light';
+        
+        // Dil yükleme - i18n.js'deki loadLanguage fonksiyonunu kullan
+        const loadedLang = await loadLanguage();
+        state.language = loadedLang;
+        currentLang = loadedLang;
+        setLanguage(loadedLang); // i18n.js modülünü de senkronize et
+        console.log('[LANG] loadState - Yüklenen dil:', state.language);
+        
         state.stories = result.stories || {};
         if (result.watchlist && typeof result.watchlist === 'object' && !Array.isArray(result.watchlist)) {
             state.watchlist = Object.keys(result.watchlist);
@@ -132,16 +190,16 @@ function updateProgressBar() {
     el.nextCheckText.style.opacity = '1';
     el.progressBar.style.width = `${progress}%`;
     if (remaining <= 0) {
-        el.nextCheckText.textContent = '🔄 Kontrol ediliyor...';
+        el.nextCheckText.textContent = `🔄 ${t('checking')}`;
         el.progressBar.classList.add('animate-pulse');
     } else {
         el.progressBar.classList.remove('animate-pulse');
         const mins = Math.floor(remaining / 60000);
         const secs = Math.floor((remaining % 60000) / 1000);
         if (mins > 0) {
-            el.nextCheckText.textContent = `⏱️ ${mins}dk ${secs}sn`;
+            el.nextCheckText.textContent = `⏱️ ${mins}${t('minutesShort')} ${secs}${t('secondsShort')}`;
         } else {
-            el.nextCheckText.textContent = `⏱️ ${secs}sn`;
+            el.nextCheckText.textContent = `⏱️ ${secs}${t('secondsShort')}`;
         }
     }
 }
@@ -171,6 +229,7 @@ async function saveState() {
             soundEnabled: state.soundEnabled,
             desktopNotification: state.desktopNotification,
             theme: state.theme,
+            language: state.language,
             stories: state.stories,
             watchlist: state.watchlist,
             isTracking: state.isTracking,
@@ -187,12 +246,15 @@ function setupEventListeners() {
         btn.addEventListener('click', () => switchTab(btn.dataset.tab));
     });
     el.checkInterval.addEventListener('input', (e) => {
-        el.intervalValue.textContent = `${e.target.value} dakika`;
+        el.intervalValue.textContent = `${e.target.value} ${t('minute')}`;
     });
     el.saveSettings.addEventListener('click', saveSettings);
     el.testSound.addEventListener('click', () => {
         chrome.runtime.sendMessage({ type: 'TEST_SOUND' });
     });
+    // Language buttons
+    el.langTr.addEventListener('click', () => changeLanguage('tr'));
+    el.langEn.addEventListener('click', () => changeLanguage('en'));
     el.addUserBtn.addEventListener('click', addUser);
     el.newUsername.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') addUser();
@@ -218,6 +280,104 @@ function setupEventListeners() {
         }
     });
     chrome.runtime.onMessage.addListener(handleMessage);
+}
+
+async function changeLanguage(lang) {
+    console.log('[LANG] changeLanguage çağrıldı:', lang);
+    state.language = lang;
+    setLanguage(lang); // i18n.js'deki currentLang'ı güncelle
+    currentLang = lang;
+    
+    try {
+        await saveLanguage(lang); // i18n.js'deki saveLanguage kullan
+        console.log('[LANG] Storage\'a kaydedildi:', lang);
+        
+        // Doğrulama için tekrar oku
+        const check = await chrome.storage.local.get('language');
+        console.log('[LANG] Doğrulama - storage\'dan okunan:', check.language);
+        
+        // Toast ile bildir
+        toast(lang === 'en' ? 'Language saved: English' : 'Dil kaydedildi: Türkçe', 'success');
+    } catch (e) {
+        console.error('[LANG] Kaydetme hatası:', e);
+        toast('Dil kaydedilemedi!', 'error');
+    }
+    
+    applyLanguage();
+    renderAll();
+    updateLanguageButtons();
+}
+
+function updateLanguageButtons() {
+    if (currentLang === 'tr') {
+        el.langTr.classList.add('border-pink-500', 'bg-pink-50', 'dark:bg-pink-900/30', 'text-pink-600', 'dark:text-pink-400');
+        el.langTr.classList.remove('border-gray-200', 'dark:border-gray-600', 'text-gray-600', 'dark:text-gray-400');
+        el.langEn.classList.remove('border-pink-500', 'bg-pink-50', 'dark:bg-pink-900/30', 'text-pink-600', 'dark:text-pink-400');
+        el.langEn.classList.add('border-gray-200', 'dark:border-gray-600', 'text-gray-600', 'dark:text-gray-400');
+    } else {
+        el.langEn.classList.add('border-pink-500', 'bg-pink-50', 'dark:bg-pink-900/30', 'text-pink-600', 'dark:text-pink-400');
+        el.langEn.classList.remove('border-gray-200', 'dark:border-gray-600', 'text-gray-600', 'dark:text-gray-400');
+        el.langTr.classList.remove('border-pink-500', 'bg-pink-50', 'dark:bg-pink-900/30', 'text-pink-600', 'dark:text-pink-400');
+        el.langTr.classList.add('border-gray-200', 'dark:border-gray-600', 'text-gray-600', 'dark:text-gray-400');
+    }
+}
+
+function applyLanguage() {
+    // Update HTML lang attribute
+    el.htmlRoot?.setAttribute('lang', currentLang);
+    
+    // Header
+    if (el.appName) el.appName.textContent = t('appName');
+    if (el.lastCheckLabel) el.lastCheckLabel.textContent = t('lastCheck');
+    
+    // Tabs
+    if (el.tabStories) el.tabStories.textContent = t('tabStories');
+    if (el.tabWatchlist) el.tabWatchlist.textContent = t('tabNotifications');
+    if (el.tabSettings) el.tabSettings.textContent = t('tabSettings');
+    
+    // Stories section
+    if (el.yourStoriesLabel) el.yourStoriesLabel.textContent = t('yourStories');
+    if (el.noStoryText) el.noStoryText.textContent = t('noStoryData');
+    if (el.noStoryHint) el.noStoryHint.textContent = t('noStoryDataHint');
+    
+    // Settings section
+    if (el.usernameLabel) el.usernameLabel.textContent = t('instagramUsername');
+    if (el.username) el.username.placeholder = t('usernamePlaceholder');
+    if (el.intervalLabel) el.intervalLabel.textContent = t('checkInterval');
+    if (el.notificationsLabel) el.notificationsLabel.textContent = t('notifications');
+    if (el.firstViewLabel) el.firstViewLabel.textContent = t('firstView');
+    if (el.repeatViewLabel) el.repeatViewLabel.textContent = t('repeatView');
+    if (el.soundLabel) el.soundLabel.textContent = t('notificationSound');
+    if (el.desktopLabel) el.desktopLabel.textContent = t('desktopNotification');
+    if (el.testSound) el.testSound.textContent = t('testSound');
+    if (el.languageLabel) el.languageLabel.textContent = t('language');
+    if (el.saveSettings) el.saveSettings.textContent = t('saveSettings');
+    
+    // Watchlist section
+    if (el.watchlistInfo) el.watchlistInfo.textContent = t('watchlistInfo');
+    if (el.newUsername) el.newUsername.placeholder = t('addUserPlaceholder');
+    if (el.notificationListLabel) el.notificationListLabel.textContent = t('notificationList');
+    if (el.emptyListText) el.emptyListText.textContent = t('emptyList');
+    if (el.emptyListHint) el.emptyListHint.textContent = t('emptyListHint');
+    
+    // Footer buttons
+    if (el.manualCheckText) el.manualCheckText.textContent = t('checkNow');
+    if (el.startTrackingText) el.startTrackingText.textContent = t('startTracking');
+    if (el.stopTrackingText) el.stopTrackingText.textContent = t('stopTracking');
+    
+    // Search viewer placeholder
+    if (el.searchViewer) el.searchViewer.placeholder = t('searchViewer');
+    
+    // User Detail Modal
+    if (el.modalViewCountLabel) el.modalViewCountLabel.textContent = t('viewCount');
+    if (el.modalStoryCountLabel) el.modalStoryCountLabel.textContent = t('storyCount');
+    if (el.modalLastActivityLabel) el.modalLastActivityLabel.textContent = t('lastActivity');
+    if (el.modalStoryViewsLabel) el.modalStoryViewsLabel.textContent = t('storyViews');
+    if (el.modalActivityLabel) el.modalActivityLabel.textContent = t('activity');
+    if (el.deleteUserLabel) el.deleteUserLabel.textContent = t('deleteUser');
+    
+    // Update language buttons
+    updateLanguageButtons();
 }
 function switchTab(tabId) {
     el.tabBtns.forEach(btn => {
@@ -252,7 +412,7 @@ function renderAll() {
 function renderSettings() {
     el.username.value = state.username;
     el.checkInterval.value = state.checkInterval;
-    el.intervalValue.textContent = `${state.checkInterval} dakika`;
+    el.intervalValue.textContent = `${state.checkInterval} ${t('minute')}`;
     el.notifyFirstView.checked = state.notifyFirstView;
     el.notifyRepeatView.checked = state.notifyRepeatView;
     el.soundEnabled.checked = state.soundEnabled;
@@ -265,8 +425,8 @@ function renderStories() {
         el.storyList.innerHTML = `
             <div id="emptyStories" class="p-8 text-center">
                 <div class="text-4xl mb-2">📭</div>
-                <p class="text-sm text-gray-500 dark:text-gray-400">Henüz hikaye verisi yok</p>
-                <p class="text-xs text-gray-400 dark:text-gray-500 mt-1">Kontrol başlatın veya manuel kontrol yapın</p>
+                <p class="text-sm text-gray-500 dark:text-gray-400">${t('noStoryData')}</p>
+                <p class="text-xs text-gray-400 dark:text-gray-500 mt-1">${t('noStoryDataHint')}</p>
             </div>
         `;
         return;
@@ -291,21 +451,21 @@ function renderStories() {
                     </div>
                     <div class="flex-1 min-w-0">
                         <div class="flex items-center justify-between">
-                            <span class="text-sm font-medium text-gray-800 dark:text-white">Hikaye</span>
+                            <span class="text-sm font-medium text-gray-800 dark:text-white">${t('story')}</span>
                             <span class="text-xs text-gray-400">${date}</span>
                         </div>
                         <div class="flex items-center gap-3 mt-1">
                             <span class="text-xs text-gray-500 dark:text-gray-400">
-                                👀 ${viewerCount} görüntüleyen
+                                👀 ${viewerCount} ${t('viewers')}
                             </span>
                             ${watchlistInStory > 0 ? `
                                 <span class="text-xs text-pink-500">
-                                    🔔 ${watchlistInStory} listeden
+                                    🔔 ${watchlistInStory} ${t('fromList')}
                                 </span>
                             ` : ''}
                         </div>
                     </div>
-                    <button class="delete-story p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors" data-story-id="${story.storyId}" title="Hikayeyi Sil">
+                    <button class="delete-story p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors" data-story-id="${story.storyId}" title="${t('deleteStory')}">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
                         </svg>
@@ -337,8 +497,8 @@ function renderWatchlist() {
         el.userList.innerHTML = `
             <li id="emptyState" class="p-8 text-center">
                 <div class="text-4xl mb-2">🔕</div>
-                <p class="text-sm text-gray-500 dark:text-gray-400">Bildirim listesi boş</p>
-                <p class="text-xs text-gray-400 dark:text-gray-500 mt-1">Bildirim almak istediğiniz kişileri ekleyin</p>
+                <p class="text-sm text-gray-500 dark:text-gray-400">${t('emptyList')}</p>
+                <p class="text-xs text-gray-400 dark:text-gray-500 mt-1">${t('emptyListHint')}</p>
             </li>
         `;
         return;
@@ -354,7 +514,7 @@ function renderWatchlist() {
                     <div class="user-info">
                         <div class="text-sm font-medium text-gray-800 dark:text-white">@${username}</div>
                         <div class="text-xs text-gray-500 dark:text-gray-400">
-                            ${userStats.viewCount > 0 ? `👀 ${userStats.viewCount} görüntüleme` : 'Henüz görüntülemedi'}
+                            ${userStats.viewCount > 0 ? `👀 ${userStats.viewCount} ${t('views')}` : t('noViewYet')}
                         </div>
                     </div>
                 </div>
@@ -396,7 +556,7 @@ function updateUI() {
     }
     el.lastCheck.textContent = state.lastCheck 
         ? formatDate(state.lastCheck, true)
-        : 'Henüz yok';
+        : t('notYet');
 }
 function getUserStats(username) {
     const usernameLower = username.toLowerCase();
@@ -418,11 +578,11 @@ function getUserStats(username) {
 function addUser() {
     const username = el.newUsername.value.trim().toLowerCase().replace('@', '');
     if (!username) {
-        toast('Kullanıcı adı girin', 'warning');
+        toast(t('enterUsername'), 'warning');
         return;
     }
     if (state.watchlist.includes(username)) {
-        toast('Bu kullanıcı zaten listede', 'info');
+        toast(t('userAlreadyInList'), 'info');
         return;
     }
     state.watchlist.push(username);
@@ -433,7 +593,7 @@ function addUser() {
         type: 'UPDATE_WATCHLIST',
         watchlist: state.watchlist
     });
-    toast(`@${username} bildirim listesine eklendi`, 'success');
+    toast(`@${username} ${t('userAdded')}`, 'success');
 }
 function removeUser(username) {
     state.watchlist = state.watchlist.filter(u => u !== username);
@@ -443,7 +603,7 @@ function removeUser(username) {
         type: 'UPDATE_WATCHLIST',
         watchlist: state.watchlist
     });
-    toast(`@${username} listeden kaldırıldı`, 'info');
+    toast(`@${username} ${t('userRemoved')}`, 'info');
 }
 function saveSettings() {
     state.username = el.username.value.trim().replace('@', '');
@@ -452,7 +612,18 @@ function saveSettings() {
     state.notifyRepeatView = el.notifyRepeatView.checked;
     state.soundEnabled = el.soundEnabled.checked;
     state.desktopNotification = el.desktopNotification.checked;
-    saveState();
+    // language zaten state içinde güncel, saveState ile birlikte kaydedilecek
+    chrome.storage.local.set({
+        username: state.username,
+        checkInterval: state.checkInterval,
+        notifyFirstView: state.notifyFirstView,
+        notifyRepeatView: state.notifyRepeatView,
+        soundEnabled: state.soundEnabled,
+        desktopNotification: state.desktopNotification,
+        language: state.language
+    }).then(() => {
+        console.log('Ayarlar kaydedildi, dil:', state.language);
+    });
     chrome.runtime.sendMessage({
         type: 'UPDATE_SETTINGS',
         settings: {
@@ -464,20 +635,20 @@ function saveSettings() {
             desktopNotification: state.desktopNotification
         }
     });
-    toast('Ayarlar kaydedildi ✓', 'success');
+    toast(t('settingsSaved'), 'success');
 }
 let isManualChecking = false;
 async function manualCheck() {
     if (isManualChecking) return;
     if (!state.username) {
-        toast('Önce kullanıcı adınızı girin', 'warning');
+        toast(t('enterYourUsername'), 'warning');
         switchTab('settings');
         el.username.focus();
         return;
     }
     isManualChecking = true;
     el.manualCheckIcon.textContent = '⏳';
-    el.manualCheckText.textContent = 'Kontrol Ediliyor...';
+    el.manualCheckText.textContent = t('checking');
     el.manualCheck.classList.add('opacity-75', 'cursor-wait');
     el.manualCheck.disabled = true;
     try {
@@ -500,24 +671,24 @@ async function manualCheck() {
             updateProgressBar();
             await loadState();
             renderAll();
-            toast('Kontrol tamamlandı ✓', 'success');
+            toast(t('checkComplete'), 'success');
         } else {
-            toast(response?.error || 'Kontrol başarısız', 'error');
+            toast(response?.error || t('checkFailed'), 'error');
         }
     } catch (error) {
         console.error('Manual check error:', error);
-        toast('Kontrol sırasında hata oluştu', 'error');
+        toast(t('errorOccurred'), 'error');
     } finally {
         isManualChecking = false;
         el.manualCheckIcon.textContent = '🔍';
-        el.manualCheckText.textContent = 'Şimdi Kontrol Et';
+        el.manualCheckText.textContent = t('checkNow');
         el.manualCheck.classList.remove('opacity-75', 'cursor-wait');
         el.manualCheck.disabled = false;
     }
 }
 function startTracking() {
     if (!state.username) {
-        toast('Önce kullanıcı adınızı girin', 'warning');
+        toast(t('enterYourUsername'), 'warning');
         switchTab('settings');
         el.username.focus();
         return;
@@ -539,7 +710,7 @@ function startTracking() {
     });
     updateUI();
     updateProgressBar();
-    toast('Takip başladı! 🚀', 'success');
+    toast(t('trackingStarted'), 'success');
 }
 function stopTracking() {
     state.isTracking = false;
@@ -547,7 +718,7 @@ function stopTracking() {
     chrome.runtime.sendMessage({ type: 'STOP_TRACKING' });
     updateUI();
     updateProgressBar();
-    toast('Takip durduruldu', 'info');
+    toast(t('trackingStopped'), 'info');
 }
 function openStoryModal(storyId) {
     const story = state.stories[storyId];
@@ -577,7 +748,7 @@ function renderStoryViewers(viewers, filter = '') {
         el.storyViewersList.innerHTML = `
             <div class="p-8 text-center">
                 <div class="text-4xl mb-2">👀</div>
-                <p class="text-sm text-gray-500 dark:text-gray-400">Henüz görüntüleyen yok</p>
+                <p class="text-sm text-gray-500 dark:text-gray-400">${t('noViewersYet')}</p>
             </div>
         `;
         return;
@@ -608,7 +779,7 @@ function renderStoryViewers(viewers, filter = '') {
                     <div>
                         <div class="text-sm font-medium text-gray-800 dark:text-white">@${viewer.username}</div>
                         <div class="text-xs text-gray-500 dark:text-gray-400">
-                            ${viewer.viewCount > 1 ? `🔄 ${viewer.viewCount}x görüntüledi` : '👁️ 1x görüntüledi'}
+                            ${viewer.viewCount > 1 ? `🔄 ${viewer.viewCount}x ${t('viewedTimes')}` : `👁️ 1x ${t('viewedTimes')}`}
                         </div>
                     </div>
                 </div>
@@ -636,14 +807,14 @@ function deleteCurrentStory() {
 }
 function deleteStory(storyId, fromModal = false) {
     if (!storyId || !state.stories[storyId]) return;
-    if (confirm('Bu hikayenin verilerini silmek istediğinize emin misiniz?')) {
+    if (confirm(t('confirmDeleteStory'))) {
         delete state.stories[storyId];
         saveState();
         if (fromModal) {
             closeStoryModal();
         }
         renderStories();
-        toast('Hikaye verisi silindi', 'info');
+        toast(t('storyDataDeleted'), 'info');
     }
 }
 function openUserModal(username) {
@@ -651,7 +822,7 @@ function openUserModal(username) {
     const stats = getUserStats(username);
     el.modalUserAvatar.textContent = username[0].toUpperCase();
     el.modalUsername.textContent = `@${username}`;
-    el.modalUserMeta.textContent = stats.lastSeen ? `Son: ${formatDate(stats.lastSeen)}` : 'Henüz görüntülemedi';
+    el.modalUserMeta.textContent = stats.lastSeen ? `${t('lastCheck')}: ${formatDate(stats.lastSeen)}` : t('noViewYet');
     el.modalTotalViews.textContent = stats.viewCount;
 
     let storyCount = 0;
@@ -681,13 +852,13 @@ function openUserModal(username) {
                     }
                 </div>
                 <div class="flex-1">
-                    <div class="text-xs text-gray-600 dark:text-gray-300">${sv.viewCount}x görüntüledi</div>
+                    <div class="text-xs text-gray-600 dark:text-gray-300">${sv.viewCount}x ${t('viewedTimes')}</div>
                     <div class="text-xs text-gray-400">${formatDate(sv.lastSeen)}</div>
                 </div>
             </li>
         `).join('');
     } else {
-        el.modalStoryList.innerHTML = '<li class="text-center text-sm text-gray-400 py-4">Henüz görüntüleme yok</li>';
+        el.modalStoryList.innerHTML = `<li class="text-center text-sm text-gray-400 py-4">${t('noViewsYet')}</li>`;
     }
     el.modalActivityList.innerHTML = '<li class="text-center text-sm text-gray-400 py-2">-</li>';
     el.userDetailModal.classList.remove('hidden');
@@ -733,14 +904,15 @@ function formatDate(date, withTime = false) {
     const d = new Date(date);
     const now = new Date();
     const diff = now - d;
+    const locale = currentLang === 'tr' ? 'tr-TR' : 'en-US';
     if (diff < 24 * 60 * 60 * 1000 && d.getDate() === now.getDate()) {
-        return d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+        return d.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
     }
     if (diff < 7 * 24 * 60 * 60 * 1000) {
-        const days = ['Paz', 'Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt'];
-        return days[d.getDay()] + (withTime ? ' ' + d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }) : '');
+        const days = t('dayNames');
+        return days[d.getDay()] + (withTime ? ' ' + d.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' }) : '');
     }
-    return d.toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' });
+    return d.toLocaleDateString(locale, { day: 'numeric', month: 'short' });
 }
 function toast(message, type = 'info') {
     const colors = {
