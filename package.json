@@ -1,0 +1,18 @@
+{
+  "name": "instagram-story-tracker",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build:css": "bunx @tailwindcss/cli -i ./src/input.css -o ./popup/tailwind.css --content \"./popup/**/*.{html,js}\"",
+    "watch:css": "bunx @tailwindcss/cli -i ./src/input.css -o ./popup/tailwind.css --content \"./popup/**/*.{html,js}\" --watch",
+    "build": "bun run build:css"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "tailwindcss": "^4.1.18"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
+}

@@ -1,0 +1,13 @@
+@import "tailwindcss";
+
+/* Class-based dark mode (Tailwind v4) */
+@variant dark (&:where(.dark, .dark *));
+
+/* Custom Instagram colors */
+@theme {
+  --color-instagram-pink: #E1306C;
+  --color-instagram-purple: #833AB4;
+  --color-instagram-orange: #F77737;
+  --color-instagram-yellow: #FCAF45;
+  --color-instagram-blue: #515BD4;
+}
