@@ -9,6 +9,8 @@
 
 **Kendi Instagram hikayelerinizi kimlerin görüntülediğini takip edin ve önemli kişiler baktığında anında bildirim alın!**
 
+**[📥 Chrome Web Store'dan İndir](https://chromewebstore.google.com/detail/Instagram%20Hikaye%20Takip%C3%A7isi/hfflglfcpcnddakpibpkfdfljpkgbcoe)**
+
 [Özellikler](#-özellikler) •
 [Kurulum](#-kurulum) •
 [Kullanım](#-kullanım) •
