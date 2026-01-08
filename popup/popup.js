@@ -92,7 +92,25 @@ const el = {
     modalLastActivityLabel: $('modalLastActivityLabel'),
     modalStoryViewsLabel: $('modalStoryViewsLabel'),
     modalActivityLabel: $('modalActivityLabel'),
-    deleteUserLabel: $('deleteUserLabel')
+    deleteUserLabel: $('deleteUserLabel'),
+    // Auto-Block elements
+    tabAutoBlock: $('tabAutoBlock'),
+    autoBlockInfo: $('autoBlockInfo'),
+    autoBlockUsername: $('autoBlockUsername'),
+    addAutoBlockBtn: $('addAutoBlockBtn'),
+    autoBlockIntervalLabel: $('autoBlockIntervalLabel'),
+    autoBlockInterval: $('autoBlockInterval'),
+    autoBlockSecondsLabel: $('autoBlockSecondsLabel'),
+    autoBlockListLabel: $('autoBlockListLabel'),
+    autoBlockCount: $('autoBlockCount'),
+    autoBlockList: $('autoBlockList'),
+    autoBlockEmptyState: $('autoBlockEmptyState'),
+    autoBlockEmptyText: $('autoBlockEmptyText'),
+    autoBlockEmptyHint: $('autoBlockEmptyHint'),
+    startAutoBlock: $('startAutoBlock'),
+    startAutoBlockText: $('startAutoBlockText'),
+    stopAutoBlock: $('stopAutoBlock'),
+    stopAutoBlockText: $('stopAutoBlockText')
 };
 let state = {
     username: '',
@@ -113,7 +131,10 @@ let state = {
         totalReviews: 0
     },
     currentStory: null,
-    currentModalUser: null
+    currentModalUser: null,
+    // Auto-Block state
+    autoBlockTargets: [],
+    isAutoBlockActive: false
 };
 let progressInterval = null;
 document.addEventListener('DOMContentLoaded', async () => {
@@ -131,16 +152,34 @@ document.addEventListener('DOMContentLoaded', async () => {
     updateLanguageButtons();
     renderAll();
     startProgressTimer();
+    
+    // Auto-block timer'ını başlat (eğer aktifse)
+    if (state.isAutoBlockActive) {
+        startAutoBlockTimer();
+    }
+    
     if (state.theme === 'dark') {
         document.documentElement.classList.add('dark');
     }
 });
+// Auto-Block state'ini storage'dan yükle
+async function loadAutoBlockState() {
+    try {
+        const result = await chrome.storage.local.get(['autoBlockTargets', 'isAutoBlockActive']);
+        state.autoBlockTargets = result.autoBlockTargets || [];
+        state.isAutoBlockActive = result.isAutoBlockActive || false;
+    } catch (error) {
+        console.error('Auto-block state load error:', error);
+    }
+}
+
 async function loadState() {
     try {
         const result = await chrome.storage.local.get([
             'username', 'checkInterval', 'notifyFirstView', 'notifyRepeatView',
             'soundEnabled', 'desktopNotification', 'theme', 'language',
-            'stories', 'watchlist', 'isTracking', 'lastCheck', 'stats'
+            'stories', 'watchlist', 'isTracking', 'lastCheck', 'stats',
+            'autoBlockTargets', 'isAutoBlockActive'
         ]);
         console.log('[LANG] loadState - Storage result.language:', result.language);
         state.username = result.username || '';
@@ -167,6 +206,9 @@ async function loadState() {
         state.isTracking = result.isTracking || false;
         state.lastCheck = result.lastCheck || null;
         state.stats = result.stats || { totalChecks: 0, totalMatches: 0, totalReviews: 0 };
+        // Auto-Block state
+        state.autoBlockTargets = result.autoBlockTargets || [];
+        state.isAutoBlockActive = result.isAutoBlockActive || false;
     } catch (error) {
         console.error('State load error:', error);
     }
@@ -279,6 +321,14 @@ function setupEventListeners() {
             closeUserModal();
         }
     });
+    // Auto-Block event listeners
+    el.addAutoBlockBtn?.addEventListener('click', addAutoBlockTarget);
+    el.autoBlockUsername?.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') addAutoBlockTarget();
+    });
+    el.startAutoBlock?.addEventListener('click', startAutoBlockTracking);
+    el.stopAutoBlock?.addEventListener('click', stopAutoBlockTracking);
+    
     chrome.runtime.onMessage.addListener(handleMessage);
 }
 
@@ -333,6 +383,7 @@ function applyLanguage() {
     // Tabs
     if (el.tabStories) el.tabStories.textContent = t('tabStories');
     if (el.tabWatchlist) el.tabWatchlist.textContent = t('tabNotifications');
+    if (el.tabAutoBlock) el.tabAutoBlock.textContent = t('tabAutoBlock');
     if (el.tabSettings) el.tabSettings.textContent = t('tabSettings');
     
     // Stories section
@@ -367,6 +418,17 @@ function applyLanguage() {
     
     // Search viewer placeholder
     if (el.searchViewer) el.searchViewer.placeholder = t('searchViewer');
+    
+    // Auto-Block section
+    if (el.autoBlockInfo) el.autoBlockInfo.textContent = t('autoBlockInfo');
+    if (el.autoBlockUsername) el.autoBlockUsername.placeholder = t('autoBlockTargetPlaceholder');
+    if (el.autoBlockIntervalLabel) el.autoBlockIntervalLabel.textContent = t('autoBlockInterval') + ':';
+    if (el.autoBlockSecondsLabel) el.autoBlockSecondsLabel.textContent = t('autoBlockSeconds');
+    if (el.autoBlockListLabel) el.autoBlockListLabel.textContent = t('autoBlockList');
+    if (el.autoBlockEmptyText) el.autoBlockEmptyText.textContent = t('autoBlockEmpty');
+    if (el.autoBlockEmptyHint) el.autoBlockEmptyHint.textContent = t('autoBlockEmptyHint');
+    if (el.startAutoBlockText) el.startAutoBlockText.textContent = t('autoBlockEnableTracking');
+    if (el.stopAutoBlockText) el.stopAutoBlockText.textContent = t('autoBlockDisableTracking');
     
     // User Detail Modal
     if (el.modalViewCountLabel) el.modalViewCountLabel.textContent = t('viewCount');
@@ -407,6 +469,7 @@ function renderAll() {
     renderSettings();
     renderStories();
     renderWatchlist();
+    renderAutoBlockList();
     updateUI();
 }
 function renderSettings() {
@@ -897,6 +960,34 @@ function handleMessage(msg) {
                 }
             });
             break;
+        // Auto-Block messages
+        case 'AUTO_BLOCK_STATUS_UPDATE':
+            // Storage'dan güncel hedefleri yükle
+            loadAutoBlockState().then(() => {
+                renderAutoBlockList();
+            });
+            break;
+        case 'AUTO_BLOCK_SUCCESS':
+            // User was successfully blocked
+            loadState().then(() => {
+                renderAutoBlockList();
+                updateAutoBlockUI();
+                
+                // Tüm hedefler engellenmişse timer'ı durdur
+                const activeTargets = state.autoBlockTargets.filter(t => t.status !== 'blocked');
+                if (activeTargets.length === 0) {
+                    stopAutoBlockTimer();
+                }
+                
+                toast(`@${msg.username} ${t('autoBlockSuccess')}`, 'success');
+            });
+            break;
+        case 'AUTO_BLOCK_FAILED':
+            loadState().then(() => {
+                renderAutoBlockList();
+                toast(`@${msg.username} ${t('autoBlockFailed')}: ${msg.error}`, 'error');
+            });
+            break;
     }
 }
 function formatDate(date, withTime = false) {
@@ -936,4 +1027,250 @@ function toast(message, type = 'info') {
     } else {
         console.log(`[${type}] ${message}`);
     }
+}
+
+// ============================================
+// AUTO-BLOCK FUNCTIONS
+// ============================================
+
+function renderAutoBlockList() {
+    if (!el.autoBlockList || !el.autoBlockCount) return;
+    
+    // Sadece aktif (engellenmeyen) hedefleri say
+    const activeTargets = state.autoBlockTargets.filter(t => t.status !== 'blocked');
+    el.autoBlockCount.textContent = state.autoBlockTargets.length;
+    
+    if (state.autoBlockTargets.length === 0) {
+        el.autoBlockList.innerHTML = `
+            <li id="autoBlockEmptyState" class="p-8 text-center">
+                <div class="text-4xl mb-2">🔓</div>
+                <p class="text-sm text-gray-500 dark:text-gray-400">${t('autoBlockEmpty')}</p>
+                <p class="text-xs text-gray-400 dark:text-gray-500 mt-1">${t('autoBlockEmptyHint')}</p>
+            </li>
+        `;
+        return;
+    }
+    
+    el.autoBlockList.innerHTML = state.autoBlockTargets.map(target => {
+        const statusInfo = getAutoBlockStatusInfo(target.status);
+        const lastCheckText = target.lastCheck ? formatDate(target.lastCheck, true) : '-';
+        const isBlocked = target.status === 'blocked';
+        
+        // Geri sayım hesapla (sadece aktif, engellenmemiş ve kontrol edilmeyen hedefler için)
+        let countdownText = '';
+        const isChecking = target.status === 'checking';
+        
+        if (!isBlocked && !isChecking && state.isAutoBlockActive && target.lastCheck) {
+            const elapsed = Date.now() - target.lastCheck;
+            const remaining = Math.max(0, (target.checkInterval * 1000) - elapsed);
+            if (remaining > 0) {
+                const secs = Math.ceil(remaining / 1000);
+                countdownText = `⏱️ ${secs}${t('autoBlockSeconds')}`;
+            }
+        }
+        
+        return `
+            <li class="autoblock-item flex items-center justify-between p-3 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors ${isBlocked ? 'opacity-60' : ''}" data-username="${target.username}">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-full ${isBlocked ? 'bg-gradient-to-br from-green-500 to-emerald-600' : 'bg-gradient-to-br from-red-500 to-rose-600'} flex items-center justify-center text-white font-bold">
+                        ${target.username[0].toUpperCase()}
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <div class="text-sm font-medium text-gray-800 dark:text-gray-100">@${target.username}</div>
+                        <div class="flex items-center gap-2 mt-0.5 flex-wrap">
+                            ${countdownText 
+                                ? `<span class="text-[10px] text-purple-600 dark:text-purple-400 font-medium bg-purple-100 dark:bg-purple-500/20 px-1.5 py-0.5 rounded">${countdownText}</span>`
+                                : `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium ${statusInfo.class}">${statusInfo.icon} ${statusInfo.text}</span>`
+                            }
+                        </div>
+                        <div class="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">
+                            ${t('autoBlockCheckCount')}: ${target.checkCount || 0} | ${target.checkInterval || 30}sn | ${lastCheckText}
+                        </div>
+                    </div>
+                </div>
+                <button class="remove-autoblock p-2 text-gray-400 dark:text-gray-500 hover:text-red-500 dark:hover:text-red-400 transition-colors" data-username="${target.username}">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </li>
+        `;
+    }).join('');
+    
+    // Event listeners for remove buttons
+    el.autoBlockList.querySelectorAll('.remove-autoblock').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            removeAutoBlockTarget(btn.dataset.username);
+        });
+    });
+    
+    // Update start/stop buttons visibility
+    updateAutoBlockUI();
+}
+
+function getAutoBlockStatusInfo(status) {
+    const statuses = {
+        'not_found': { 
+            text: t('autoBlockWaiting'), 
+            icon: '⏳', 
+            class: 'bg-yellow-100 dark:bg-yellow-500/20 text-yellow-700 dark:text-yellow-300' 
+        },
+        'available': { 
+            text: t('autoBlockProfileAvailable'), 
+            icon: '🎯', 
+            class: 'bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300' 
+        },
+        'blocked': { 
+            text: t('autoBlockBlocked'), 
+            icon: '✓', 
+            class: 'bg-green-100 dark:bg-green-500/20 text-green-700 dark:text-green-300' 
+        },
+        'error': { 
+            text: t('autoBlockError'), 
+            icon: '⚠', 
+            class: 'bg-red-100 dark:bg-red-500/20 text-red-700 dark:text-red-300' 
+        },
+        'checking': { 
+            text: t('autoBlockChecking'), 
+            icon: '🔄', 
+            class: 'bg-purple-100 dark:bg-purple-500/20 text-purple-700 dark:text-purple-300' 
+        }
+    };
+    return statuses[status] || statuses['not_found'];
+}
+
+function updateAutoBlockUI() {
+    if (!el.startAutoBlock || !el.stopAutoBlock) return;
+    
+    // Aktif (engellenmemiş) hedef sayısını kontrol et
+    const activeTargets = state.autoBlockTargets.filter(t => t.status !== 'blocked');
+    
+    if (state.isAutoBlockActive) {
+        el.startAutoBlock.classList.add('hidden');
+        el.stopAutoBlock.classList.remove('hidden');
+    } else {
+        el.startAutoBlock.classList.remove('hidden');
+        el.stopAutoBlock.classList.add('hidden');
+        
+        // Aktif hedef yoksa başlat butonunu devre dışı bırak
+        if (activeTargets.length === 0 && state.autoBlockTargets.length > 0) {
+            el.startAutoBlock.disabled = true;
+            el.startAutoBlock.classList.add('opacity-50', 'cursor-not-allowed');
+        } else {
+            el.startAutoBlock.disabled = false;
+            el.startAutoBlock.classList.remove('opacity-50', 'cursor-not-allowed');
+        }
+    }
+}
+
+async function addAutoBlockTarget() {
+    const username = el.autoBlockUsername?.value.trim().toLowerCase().replace('@', '');
+    const interval = parseInt(el.autoBlockInterval?.value) || 30;
+    
+    if (!username) {
+        toast(t('enterUsername'), 'warning');
+        return;
+    }
+    
+    // Check if already exists
+    if (state.autoBlockTargets.find(t => t.username === username)) {
+        toast(t('autoBlockAlreadyInList'), 'info');
+        return;
+    }
+    
+    const newTarget = {
+        username: username,
+        checkInterval: Math.max(10, Math.min(300, interval)), // 10-300 saniye arası
+        lastCheck: null,
+        status: 'not_found',
+        createdAt: Date.now(),
+        checkCount: 0,
+        lastError: null
+    };
+    
+    state.autoBlockTargets.push(newTarget);
+    el.autoBlockUsername.value = '';
+    
+    // Save to storage
+    await chrome.storage.local.set({ autoBlockTargets: state.autoBlockTargets });
+    
+    // Notify background
+    chrome.runtime.sendMessage({
+        type: 'UPDATE_AUTO_BLOCK_TARGETS',
+        targets: state.autoBlockTargets
+    });
+    
+    renderAutoBlockList();
+    toast(`@${username} ${t('autoBlockAdded')}`, 'success');
+}
+
+async function removeAutoBlockTarget(username) {
+    state.autoBlockTargets = state.autoBlockTargets.filter(t => t.username !== username);
+    
+    // Save to storage
+    await chrome.storage.local.set({ autoBlockTargets: state.autoBlockTargets });
+    
+    // Notify background
+    chrome.runtime.sendMessage({
+        type: 'UPDATE_AUTO_BLOCK_TARGETS',
+        targets: state.autoBlockTargets
+    });
+    
+    renderAutoBlockList();
+    toast(`@${username} ${t('autoBlockRemoved')}`, 'info');
+}
+
+// Auto-block geri sayım timer'ı
+let autoBlockTimerInterval = null;
+
+function startAutoBlockTimer() {
+    if (autoBlockTimerInterval) clearInterval(autoBlockTimerInterval);
+    autoBlockTimerInterval = setInterval(() => {
+        if (state.isAutoBlockActive) {
+            renderAutoBlockList();
+        }
+    }, 1000);
+}
+
+function stopAutoBlockTimer() {
+    if (autoBlockTimerInterval) {
+        clearInterval(autoBlockTimerInterval);
+        autoBlockTimerInterval = null;
+    }
+}
+
+async function startAutoBlockTracking() {
+    // Sadece engellenmemiş hedefleri kontrol et
+    const activeTargets = state.autoBlockTargets.filter(t => t.status !== 'blocked');
+    
+    if (activeTargets.length === 0) {
+        toast(t('autoBlockEmpty'), 'warning');
+        return;
+    }
+    
+    state.isAutoBlockActive = true;
+    await chrome.storage.local.set({ isAutoBlockActive: true });
+    
+    chrome.runtime.sendMessage({
+        type: 'START_AUTO_BLOCK',
+        targets: state.autoBlockTargets
+    });
+    
+    updateAutoBlockUI();
+    startAutoBlockTimer();
+    toast(t('autoBlockStarted'), 'success');
+}
+
+async function stopAutoBlockTracking() {
+    state.isAutoBlockActive = false;
+    await chrome.storage.local.set({ isAutoBlockActive: false });
+    
+    chrome.runtime.sendMessage({
+        type: 'STOP_AUTO_BLOCK'
+    });
+    
+    updateAutoBlockUI();
+    stopAutoBlockTimer();
+    toast(t('autoBlockStopped'), 'info');
 }

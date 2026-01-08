@@ -2,7 +2,7 @@
 
 <div align="center">
 
-![Version](https://img.shields.io/badge/version-1.1.0-pink)
+![Version](https://img.shields.io/badge/version-1.2.0-pink)
 ![Chrome](https://img.shields.io/badge/Chrome-Extension-blue)
 ![Manifest](https://img.shields.io/badge/Manifest-V3-green)
 ![License](https://img.shields.io/badge/license-MIT-purple)
@@ -62,7 +62,14 @@
 - **Masaüstü bildirimleri** - Chrome bildirim sistemi ile
 - **Ses bildirimi** - Özelleştirilebilir bildirim sesi
 
-### 📊 Detaylı Takip
+### � Otomatik Engelleme Sistemi (YENİ!)
+- **Engel takibi** - Sizi engelleyen kişilerin profilini periyodik olarak kontrol eder
+- **Otomatik engelleme** - Engeli kaldırdıklarında otomatik olarak onları engeller
+- **Özelleştirilebilir kontrol aralığı** - 10-300 saniye arası ayarlanabilir
+- **Durum takibi** - Her hedefin durumunu gerçek zamanlı görün
+- **Bildirim** - Engelleme başarılı olduğunda masaüstü bildirimi
+
+### �📊 Detaylı Takip
 - Tüm görüntüleyenlerin listesi
 - Her görüntüleyicinin kaç kez baktığı
 - Pozisyon değişimi takibi
@@ -147,6 +154,39 @@
 - **"Manuel Kontrol"** butonuyla istediğiniz zaman kontrol yapabilirsiniz
 - Hikaye sayfası otomatik açılır, veriler çekilir ve sekme kapatılır
 
+### 🚫 Otomatik Engelleme Kullanımı (YENİ!)
+
+Bu özellik, sizi engelleyen kişilerin engelini kaldırıp kaldırmadığını kontrol eder ve kaldırdıklarında otomatik olarak onları engeller.
+
+**Ne zaman kullanılır?**
+- Birini engellediniz, o da sizi engelledi
+- Sonra siz engeli kaldırdınız ama mesajları sildiğiniz için tekrar engelleyemiyorsunuz
+- Karşı taraf hala sizi engellediği için profilini göremiyorsunuz
+
+**Nasıl çalışır?**
+1. **🚫 Oto-Engel sekmesine gidin**
+2. **Engellemek istediğiniz kullanıcı adını girin**
+3. **Kontrol aralığını ayarlayın** (varsayılan: 30 saniye)
+4. **"🔒 Oto-Engeli Başlat" butonuna tıklayın**
+
+**Durum göstergeleri:**
+- ⏳ **Bekliyor** - Profil hala "mevcut değil" durumunda (engel devam ediyor)
+- 🎯 **Profil açık** - Engel kaldırılmış, engelleme başlatılıyor
+- ✓ **Engellendi** - Başarıyla engellendi
+- ⚠ **Hata** - Bir sorun oluştu
+
+**İşlem akışı:**
+```
+1. Profil sayfasına git (instagram.com/kullanici_adi)
+2. "Profile mevcut değil" mi kontrol et
+   - Evet → Engel devam ediyor, tekrar bekle
+   - Hayır → Profil açık!
+3. Seçenekler (⋯) butonuna tıkla
+4. "Engelle" butonuna tıkla
+5. Onay ekranında tekrar "Engelle" butonuna tıkla
+6. Başarılı! Masaüstü bildirimi gönder
+```
+
 ---
 
 ## 🧠 Tekrar Görüntüleme Algoritması
@@ -184,7 +224,12 @@ instagram-story-tracker/
 │   ├── viewer-tracker.js   # Görüntüleyici takip algoritması
 │   ├── alarms.js           # Zamanlayıcı yönetimi
 │   ├── instagram.js        # Instagram tab işlemleri
-│   └── i18n.js             # Çoklu dil desteği (🇹🇷/🇬🇧)
+│   ├── i18n.js             # Çoklu dil desteği (🇹🇷/🇬🇧)
+│   └── auto-block.js       # Otomatik engelleme modülü
+├── content/
+│   ├── content.js          # Instagram hikaye sayfası etkileşimi
+│   ├── content.css         # In-page bildirim stilleri
+│   └── auto-block-content.js # Profil engelleme content script
 ├── assets/
 │   ├── icons/              # Extension ikonları
 │   └── sounds/             # Bildirim sesleri

@@ -28,13 +28,21 @@ import {
     openStoryPage, 
     injectViewerExtractor 
 } from '../utils/instagram.js';
+import {
+    loadAutoBlockTargets,
+    saveAutoBlockTargets,
+    PROFILE_STATUS
+} from '../utils/auto-block.js';
 
 let appState = {
     settings: {},
     watchlist: [],
     stories: {},
     positions: {},
-    isTracking: false
+    isTracking: false,
+    // Auto-Block state
+    autoBlockTargets: [],
+    isAutoBlockActive: false
 };
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
@@ -46,6 +54,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     } else if (alarm.name === 'cleanup') {
         await performCleanup();
     }
+    // autoBlockCheck artık setInterval ile yönetiliyor
 });
 
 let isInitialized = false;
@@ -77,6 +86,11 @@ async function initialize() {
     const state = await loadState();
     appState.isTracking = state.isTracking;
     
+    // Auto-Block state yükle
+    appState.autoBlockTargets = await loadAutoBlockTargets();
+    const autoBlockState = await chrome.storage.local.get('isAutoBlockActive');
+    appState.isAutoBlockActive = autoBlockState.isAutoBlockActive || false;
+    
     setupNotificationClickHandler(appState.settings.username);
     
     startCleanupAlarm();
@@ -84,6 +98,12 @@ async function initialize() {
     if (appState.isTracking) {
         startCheckAlarm(appState.settings.checkInterval);
         log('Takip devam ediyor...', 'info');
+    }
+    
+    // Auto-Block aktifse başlat
+    if (appState.isAutoBlockActive && appState.autoBlockTargets.length > 0) {
+        startAutoBlockAlarm();
+        log('Otomatik engelleme devam ediyor...', 'info');
     }
     
     isInitialized = true;
@@ -133,6 +153,22 @@ async function handleMessage(message, sender = null) {
                 isTracking: appState.isTracking,
                 isInitialized: isInitialized
             };
+        
+        // Auto-Block handlers
+        case 'UPDATE_AUTO_BLOCK_TARGETS':
+            return await handleUpdateAutoBlockTargets(message.targets);
+            
+        case 'START_AUTO_BLOCK':
+            return await handleStartAutoBlock(message.targets);
+            
+        case 'STOP_AUTO_BLOCK':
+            return await handleStopAutoBlock();
+            
+        case 'AUTO_BLOCK_PROFILE_CHECK_RESULT':
+            return await handleAutoBlockProfileCheckResult(message);
+            
+        case 'AUTO_BLOCK_EXECUTE_RESULT':
+            return await handleAutoBlockExecuteResult(message);
             
         default:
             log(`Bilinmeyen mesaj tipi: ${message.type}`, 'warning');
@@ -331,4 +367,384 @@ async function checkStoryViewers() {
 async function performCleanup() {
     await cleanupExpiredStories();
     log('Eski hikayeler temizlendi', 'info');
+}
+
+// ============================================
+// AUTO-BLOCK FUNCTIONS
+// ============================================
+
+let autoBlockIntervalId = null;
+
+function startAutoBlockAlarm() {
+    // Önceki interval'ı temizle
+    if (autoBlockIntervalId) {
+        clearInterval(autoBlockIntervalId);
+    }
+    
+    // Her 2 saniyede kontrol et - her hedefin kendi zamanı var
+    autoBlockIntervalId = setInterval(async () => {
+        if (appState.isAutoBlockActive) {
+            await checkAutoBlockTargets();
+        }
+    }, 2000); // Her 2 saniye kontrol
+    
+    log('Auto-block interval başlatıldı (2 saniye)', 'info');
+}
+
+function stopAutoBlockAlarm() {
+    if (autoBlockIntervalId) {
+        clearInterval(autoBlockIntervalId);
+        autoBlockIntervalId = null;
+    }
+    chrome.alarms.clear('autoBlockCheck');
+    log('Auto-block interval durduruldu', 'info');
+}
+
+async function handleUpdateAutoBlockTargets(targets) {
+    appState.autoBlockTargets = targets || [];
+    await saveAutoBlockTargets(appState.autoBlockTargets);
+    
+    // Aktifse interval'ı yeniden başlat (yeni interval değerleri için)
+    if (appState.isAutoBlockActive) {
+        startAutoBlockAlarm();
+    }
+    
+    log('Auto-block hedefleri güncellendi', 'success');
+    return { success: true };
+}
+
+async function handleStartAutoBlock(targets) {
+    if (targets) {
+        appState.autoBlockTargets = targets;
+        await saveAutoBlockTargets(targets);
+    }
+    
+    appState.isAutoBlockActive = true;
+    await chrome.storage.local.set({ isAutoBlockActive: true });
+    
+    startAutoBlockAlarm();
+    
+    // İlk kontrolü hemen yap
+    await checkAutoBlockTargets();
+    
+    log('Otomatik engelleme başlatıldı!', 'success');
+    await addLog('Otomatik engelleme başlatıldı', 'info');
+    
+    return { success: true };
+}
+
+async function handleStopAutoBlock() {
+    appState.isAutoBlockActive = false;
+    await chrome.storage.local.set({ isAutoBlockActive: false });
+    
+    stopAutoBlockAlarm();
+    
+    log('Otomatik engelleme durduruldu', 'info');
+    await addLog('Otomatik engelleme durduruldu', 'info');
+    
+    return { success: true };
+}
+
+async function checkAutoBlockTargets() {
+    if (!appState.isAutoBlockActive) return;
+    
+    const now = Date.now();
+    
+    // CHECKING durumunda takılı kalan hedefleri kurtarma (30 saniyeden fazla checking'de kalanlar)
+    for (const target of appState.autoBlockTargets) {
+        if (target.status === PROFILE_STATUS.CHECKING && target.checkStartTime) {
+            const checkingDuration = now - target.checkStartTime;
+            if (checkingDuration > 30000) { // 30 saniyeden fazla checking'de
+                log(`@${target.username} kontrolü takıldı, sıfırlanıyor...`, 'warning');
+                target.status = PROFILE_STATUS.NOT_FOUND;
+                target.lastCheck = now;
+                delete target.checkStartTime;
+                await saveAutoBlockTargets(appState.autoBlockTargets);
+                notifyPopup('AUTO_BLOCK_STATUS_UPDATE', {
+                    username: target.username,
+                    status: target.status,
+                    lastCheck: target.lastCheck
+                });
+            }
+        }
+    }
+    
+    // Sadece aktif (engellenmemiş ve şu anda kontrol edilmeyen) hedefleri kontrol et
+    const activeTargets = appState.autoBlockTargets.filter(t => 
+        t.status !== PROFILE_STATUS.BLOCKED && 
+        t.status !== PROFILE_STATUS.CHECKING
+    );
+    
+    // Tüm hedefler engellenmişse otomatik engellemeyi durdur
+    const nonBlockedTargets = appState.autoBlockTargets.filter(t => t.status !== PROFILE_STATUS.BLOCKED);
+    if (nonBlockedTargets.length === 0 && appState.autoBlockTargets.length > 0) {
+        log('Tüm hedefler engellendi, otomatik engelleme durduruluyor...', 'success');
+        await handleStopAutoBlock();
+        return;
+    }
+    
+    // Kontrol zamanı gelen hedefleri bul
+    const targetsToCheck = [];
+    for (const target of activeTargets) {
+        if (target.lastCheck) {
+            const timeSinceLastCheck = now - target.lastCheck;
+            if (timeSinceLastCheck >= (target.checkInterval * 1000)) {
+                targetsToCheck.push(target);
+            }
+        } else {
+            // İlk kontrol
+            targetsToCheck.push(target);
+        }
+    }
+    
+    // Sıralı kontrol yap (bir seferde bir hedef)
+    for (const target of targetsToCheck) {
+        try {
+            await checkProfileAndBlock(target);
+        } catch (err) {
+            log(`Kontrol hatası @${target.username}: ${err.message}`, 'error');
+        }
+    }
+}
+
+async function checkProfileAndBlock(target) {
+    log(`Profil kontrol ediliyor: @${target.username}`, 'info');
+    
+    // Kontrol başlangıç zamanını kaydet (timeout için)
+    const checkStartTime = Date.now();
+    target.checkStartTime = checkStartTime;
+    
+    // Status güncelle - checking (lastCheck henüz güncellenmez)
+    target.status = PROFILE_STATUS.CHECKING;
+    target.checkCount = (target.checkCount || 0) + 1;
+    await saveAutoBlockTargets(appState.autoBlockTargets);
+    
+    // Popup'a bildir
+    notifyPopup('AUTO_BLOCK_STATUS_UPDATE', {
+        username: target.username,
+        status: PROFILE_STATUS.CHECKING
+    });
+    
+    try {
+        // Profil sayfasını aç
+        const profileUrl = `https://www.instagram.com/${target.username}/`;
+        
+        const tab = await chrome.tabs.create({ 
+            url: profileUrl, 
+            active: false 
+        });
+        
+        // Sayfa yüklenmesini bekle
+        await new Promise(resolve => {
+            const listener = (tabId, changeInfo) => {
+                if (tabId === tab.id && changeInfo.status === 'complete') {
+                    chrome.tabs.onUpdated.removeListener(listener);
+                    resolve();
+                }
+            };
+            chrome.tabs.onUpdated.addListener(listener);
+            
+            // Timeout ekle
+            setTimeout(() => {
+                chrome.tabs.onUpdated.removeListener(listener);
+                resolve();
+            }, 10000);
+        });
+        
+        // Ekstra bekleme
+        await new Promise(r => setTimeout(r, 3000));
+        
+        // Content script'i inject et (manifest'teki otomatik yükleme bazen gecikebilir)
+        try {
+            await chrome.scripting.executeScript({
+                target: { tabId: tab.id },
+                files: ['content/auto-block-content.js']
+            });
+        } catch (e) {
+            log(`Content script zaten yüklü veya inject hatası: ${e.message}`, 'info');
+        }
+        
+        // Biraz bekle
+        await new Promise(r => setTimeout(r, 500));
+        
+        // Profil durumunu kontrol et (doğrudan script çalıştır)
+        let profileCheckResult;
+        try {
+            const [{ result }] = await chrome.scripting.executeScript({
+                target: { tabId: tab.id },
+                func: () => {
+                    const pageText = document.body.innerText;
+                    
+                    // Not found göstergeleri
+                    const notFoundIndicators = [
+                        'Profile mevcut değil',
+                        'Sorry, this page isn\'t available',
+                        'Bağlantı bozuk olabilir',
+                        'The link you followed may be broken',
+                        'Bu sayfa mevcut değil'
+                    ];
+                    
+                    for (const indicator of notFoundIndicators) {
+                        if (pageText.includes(indicator)) {
+                            return { profileAvailable: false, reason: 'not_found' };
+                        }
+                    }
+                    
+                    // Profil mevcut göstergeleri
+                    const availableIndicators = ['gönderi', 'takipçi', 'takip', 'posts', 'followers', 'following'];
+                    let count = 0;
+                    for (const indicator of availableIndicators) {
+                        if (pageText.includes(indicator)) count++;
+                    }
+                    
+                    return { profileAvailable: count >= 2, reason: count >= 2 ? 'available' : 'unknown' };
+                }
+            });
+            profileCheckResult = result;
+        } catch (scriptError) {
+            log(`Script çalıştırma hatası: ${scriptError.message}`, 'error');
+            profileCheckResult = { profileAvailable: false, reason: 'error' };
+        }
+        
+        log(`@${target.username} profil kontrol sonucu: ${JSON.stringify(profileCheckResult)}`, 'info');
+        
+        if (profileCheckResult && profileCheckResult.profileAvailable) {
+            // Profil mevcut! Engelleme işlemini başlat
+            log(`@${target.username} profili açık! Engelleme başlatılıyor...`, 'success');
+            
+            target.status = PROFILE_STATUS.AVAILABLE;
+            
+            // Engelleme işlemini dene
+            try {
+                const blockResult = await chrome.tabs.sendMessage(tab.id, {
+                    type: 'EXECUTE_BLOCK',
+                    username: target.username
+                });
+                
+                if (blockResult && blockResult.success) {
+                    target.status = PROFILE_STATUS.BLOCKED;
+                    
+                    notifyPopup('AUTO_BLOCK_SUCCESS', {
+                        username: target.username
+                    });
+                    
+                    // Masaüstü bildirimi gönder
+                    chrome.notifications.create({
+                        type: 'basic',
+                        iconUrl: '/assets/icons/icon128.png',
+                        title: '🚫 Otomatik Engelleme',
+                        message: `@${target.username} başarıyla engellendi!`
+                    });
+                    
+                    // Log kaydı ekle
+                    await addLog(`@${target.username} otomatik olarak engellendi`, 'success');
+                    
+                    log(`@${target.username} başarıyla engellendi!`, 'success');
+                } else {
+                    log(`Engelleme başarısız: ${blockResult?.error || 'Bilinmeyen hata'}`, 'error');
+                    target.status = PROFILE_STATUS.AVAILABLE; // Tekrar denenecek
+                }
+            } catch (blockError) {
+                log(`Engelleme hatası: ${blockError.message}`, 'error');
+                target.status = PROFILE_STATUS.AVAILABLE; // Tekrar denenecek
+            }
+        } else {
+            // Profil hala mevcut değil
+            target.status = PROFILE_STATUS.NOT_FOUND;
+            log(`@${target.username} profili hala mevcut değil`, 'info');
+        }
+        
+        // Tab'ı kapat ve lastCheck'i güncelle
+        target.lastCheck = Date.now(); // Kontrol tamamlandı, geri sayımı sıfırla
+        delete target.checkStartTime; // Timeout tracker'ı temizle
+        
+        // Status'u not_found'a geri çevir (eğer hala checking ise)
+        if (target.status === PROFILE_STATUS.CHECKING) {
+            target.status = PROFILE_STATUS.NOT_FOUND;
+        }
+        
+        await saveAutoBlockTargets(appState.autoBlockTargets);
+        
+        // Popup'a kontrol tamamlandı bildirimi
+        notifyPopup('AUTO_BLOCK_STATUS_UPDATE', {
+            username: target.username,
+            status: target.status,
+            lastCheck: target.lastCheck
+        });
+        
+        setTimeout(async () => {
+            try {
+                await chrome.tabs.remove(tab.id);
+            } catch (e) {
+                // Tab zaten kapatılmış olabilir
+            }
+        }, 2000);
+        
+    } catch (error) {
+        log(`@${target.username} kontrol hatası: ${error.message}`, 'error');
+        
+        target.status = PROFILE_STATUS.ERROR;
+        target.lastError = error.message;
+        target.lastCheck = Date.now(); // Hata durumunda da geri sayımı sıfırla
+        delete target.checkStartTime; // Timeout tracker'ı temizle
+        await saveAutoBlockTargets(appState.autoBlockTargets);
+        
+        // Popup'a hata bildirimi
+        notifyPopup('AUTO_BLOCK_STATUS_UPDATE', {
+            username: target.username,
+            status: PROFILE_STATUS.ERROR,
+            error: error.message,
+            lastCheck: target.lastCheck
+        });
+    }
+}
+
+async function handleAutoBlockProfileCheckResult(message) {
+    const { username, profileAvailable } = message;
+    
+    const target = appState.autoBlockTargets.find(t => t.username === username);
+    if (!target) return { success: false };
+    
+    if (profileAvailable) {
+        target.status = PROFILE_STATUS.AVAILABLE;
+    } else {
+        target.status = PROFILE_STATUS.NOT_FOUND;
+    }
+    
+    target.lastCheck = Date.now();
+    await saveAutoBlockTargets(appState.autoBlockTargets);
+    
+    notifyPopup('AUTO_BLOCK_STATUS_UPDATE', {
+        username,
+        status: target.status
+    });
+    
+    return { success: true, shouldBlock: profileAvailable };
+}
+
+async function handleAutoBlockExecuteResult(message) {
+    const { username, success, error } = message;
+    
+    const target = appState.autoBlockTargets.find(t => t.username === username);
+    if (!target) return { success: false };
+    
+    if (success) {
+        target.status = PROFILE_STATUS.BLOCKED;
+        notifyPopup('AUTO_BLOCK_SUCCESS', { username });
+        
+        chrome.notifications.create({
+            type: 'basic',
+            iconUrl: '/assets/icons/icon128.png',
+            title: '🚫 Otomatik Engelleme',
+            message: `@${username} başarıyla engellendi!`
+        });
+    } else {
+        target.status = PROFILE_STATUS.ERROR;
+        target.lastError = error;
+        notifyPopup('AUTO_BLOCK_FAILED', { username, error });
+    }
+    
+    await saveAutoBlockTargets(appState.autoBlockTargets);
+    
+    return { success: true };
 }

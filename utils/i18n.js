@@ -102,7 +102,38 @@ export const translations = {
         
         // Time
         secondsShort: 'sn',
-        minutesShort: 'dk'
+        minutesShort: 'dk',
+        
+        // Auto-Block
+        tabAutoBlock: '🚫 Oto-Engel',
+        autoBlockInfo: '🔒 Sizi engelleyen kişiler engelini kaldırdığında otomatik olarak engelleyin.',
+        autoBlockTargetPlaceholder: 'kullanici_adi',
+        autoBlockList: 'Engelleme Listesi',
+        autoBlockEmpty: 'Engelleme listesi boş',
+        autoBlockEmptyHint: 'Otomatik engellemek istediğiniz kişileri ekleyin',
+        autoBlockStatus: 'Durum',
+        autoBlockInterval: 'Kontrol Aralığı',
+        autoBlockSeconds: 'sn',
+        autoBlockWaiting: 'Bekliyor...',
+        autoBlockBlocked: 'Engellendi ✓',
+        autoBlockError: 'Hata',
+        autoBlockChecking: 'Kontrol ediliyor...',
+        autoBlockProfileNotFound: 'Profil mevcut değil',
+        autoBlockProfileAvailable: 'Profil açık - engelleniyor!',
+        autoBlockStarted: 'Otomatik engelleme başlatıldı 🚀',
+        autoBlockStopped: 'Otomatik engelleme durduruldu',
+        autoBlockSuccess: 'başarıyla engellendi! 🎉',
+        autoBlockFailed: 'engellenemedi',
+        autoBlockAlreadyInList: 'Bu kullanıcı zaten listede',
+        autoBlockAdded: 'engelleme listesine eklendi',
+        autoBlockRemoved: 'engelleme listesinden kaldırıldı',
+        autoBlockCheckCount: 'Kontrol sayısı',
+        autoBlockLastCheck: 'Son kontrol',
+        autoBlockDeleteTarget: '🗑️ Hedefi Sil',
+        autoBlockConfirmDelete: 'Bu hedefi silmek istediğinize emin misiniz?',
+        autoBlockEnableTracking: '🔒 Oto-Engeli Başlat',
+        autoBlockDisableTracking: '🔓 Oto-Engeli Durdur',
+        autoBlockNotification: 'Otomatik engellendi!'
     },
     en: {
         // Header
@@ -206,7 +237,38 @@ export const translations = {
         
         // Time
         secondsShort: 's',
-        minutesShort: 'm'
+        minutesShort: 'm',
+        
+        // Auto-Block
+        tabAutoBlock: '🚫 Auto-Block',
+        autoBlockInfo: '🔒 Automatically block people who blocked you when they unblock.',
+        autoBlockTargetPlaceholder: 'username',
+        autoBlockList: 'Block List',
+        autoBlockEmpty: 'Block list is empty',
+        autoBlockEmptyHint: 'Add people you want to auto-block',
+        autoBlockStatus: 'Status',
+        autoBlockInterval: 'Check Interval',
+        autoBlockSeconds: 's',
+        autoBlockWaiting: 'Waiting...',
+        autoBlockBlocked: 'Blocked ✓',
+        autoBlockError: 'Error',
+        autoBlockChecking: 'Checking...',
+        autoBlockProfileNotFound: 'Profile not available',
+        autoBlockProfileAvailable: 'Profile available - blocking!',
+        autoBlockStarted: 'Auto-block started 🚀',
+        autoBlockStopped: 'Auto-block stopped',
+        autoBlockSuccess: 'successfully blocked! 🎉',
+        autoBlockFailed: 'could not be blocked',
+        autoBlockAlreadyInList: 'This user is already in the list',
+        autoBlockAdded: 'added to block list',
+        autoBlockRemoved: 'removed from block list',
+        autoBlockCheckCount: 'Check count',
+        autoBlockLastCheck: 'Last check',
+        autoBlockDeleteTarget: '🗑️ Delete Target',
+        autoBlockConfirmDelete: 'Are you sure you want to delete this target?',
+        autoBlockEnableTracking: '🔒 Start Auto-Block',
+        autoBlockDisableTracking: '🔓 Stop Auto-Block',
+        autoBlockNotification: 'Auto-blocked!'
     }
 };
 
